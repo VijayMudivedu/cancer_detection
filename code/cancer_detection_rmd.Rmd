@@ -74,8 +74,8 @@ The mean, standard error, and "worst" or largest (mean of the three largest valu
 ```{r}
 #install.packages("xlsx")
 #install.packages("rJava")
-setwd("/Users/vmudivedu/Google Drive/_OneDrive_Atimi_Software/Upgrad/case study/Cancer")
-cancer_df_raw <- read.csv(file = "~/Google Drive/_OneDrive_Atimi_Software/Upgrad/case study/Cancer/Worksheet in CaseStudy_Cancer_1.csv",header = T,check.names = T,stringsAsFactors = T)
+setwd("/Users/vmudivedu/Google Drive/_OneDrive_Atimi_Software/Upgrad/case study/Cancer/cancer_detection/")
+cancer_df_raw <- read.csv(file = "~/Google Drive/_OneDrive_Atimi_Software/Upgrad/case study/Cancer/cancer_detection/dataset/Worksheet in CaseStudy_Cancer_1.csv",header = T,check.names = T,stringsAsFactors = T)
 ```
 
 ### Data Preparation 
@@ -247,7 +247,7 @@ model_logit <- caret::train(label~.,data = train_df_cancer[var_2],method = "glm"
 ```{r}
 set.seed(100)
 z_predictors <- setdiff(names(train_df_cancer),"label")
-#model_lasso <- glmnet::glmnet(x = z_predictors,y = label,,family = "binomial",alpha = 1,lambda = seq(0,0.5,length.out = 50))
+
 model_glmnet <- caret::train(x = train_df_cancer[,z_predictors],y = train_df_cancer[,c("label")],method = "glmnet",
                              trControl = train_control_logit)
 
@@ -260,14 +260,13 @@ model_glmnet
 - most important predictors
 
 ```{r}
-plot(model_glmnet$finalModel,label = T,xvar = "lambda")
+#plot(model_glmnet$finalModel,label = T,xvar = "lambda")
 plot(model_glmnet$finalModel,label = T,xvar = "dev")
-plot(varImp(model_glmnet))
 ```
 - 80% of the variablility in the dataset is explained by the 11 variables in the dataset and the remaining variables have grown steeply leading to high collinearity and overfitting
 
 ```{r}
-plot(varImp(model_glmnet))
+plot(varImp(model_glmnet),main = "glmnet variables of importance")
 ```
 
 - The 11 variables are show below by the glmfit
@@ -284,7 +283,8 @@ model_glmnet$bestTune
 ```{r}
 
 predict_glmfit <- predict(object = model_glmnet,newdata = test_df_cancer[z_predictors])#,type = "response")
-confusionMatrix(factor(predict_glmfit),test_df_cancer$label,positive = "1")
+conf_mat_glmnet <- confusionMatrix(factor(predict_glmfit),test_df_cancer$label,positive = "1")
+
 ```
 
 *Comments*: Miss-rate is: 3. specifies that 3 records though were
@@ -292,6 +292,7 @@ confusionMatrix(factor(predict_glmfit),test_df_cancer$label,positive = "1")
 ### Using Support Vector Machines
 
 ```{r}
+set.seed(100)
 train_control_svm <- trainControl(method = "repeatedcv",
                               repeats = 5,
                               number = 5,
@@ -307,9 +308,7 @@ model_svm <- ksvm(label ~.,
                   data = train_df_cancer,
                   trControl = trn_cntrol_svm,
                   tuneGrid = tuning_grid_svm,
-                  metric = "auc"
-                  )
-
+                  metric = "auc")
 model_svm
 ```
 
@@ -323,6 +322,7 @@ confusionMatrix(data = predicted_svm,reference = test_df_cancer$label,positive =
 ### Using Random Forest
 
 ```{r}
+set.seed(100)
 # Train control
 train_control_rf <- trainControl(method = "repeatedcv",
                                   repeats = 5,
@@ -356,6 +356,7 @@ confusionMatrix(predict_rf,test_df_cancer$label,positive = "1")
 # Using XGBoost
 
 ```{r}
+set.seed(100)
 # preparing the trainingControl 
 trn_cntrol_xgb <- caret::trainControl(method = "repeatedcv",
                                       number = 5,
@@ -386,7 +387,7 @@ model_xgb$bestTune
 
 ```
 
-### extremeGradient Boosing prediction
+### XGBoost prediction
 
 ```{r}
 # predicting the val
@@ -394,6 +395,10 @@ predict_xgb <- predict(object = model_xgb,test_df_cancer[z_predictors])
 
 # confusion matrix
 confusionMatrix(data = predict_xgb,reference = test_df_cancer$label,positive = "1")
+```
+
+```{r}
+caret::resamples(list(model_glmnet,model_svm,model_rf))
 ```
 
 #------------------------------
@@ -420,8 +425,9 @@ Undoubtedly SVM outperforms the glmnet in terms of numbers, however, it suffers 
 ### principal component analysis
 
 ```{r}
-cancer_df_pca <- princomp(cancer_df[,-1],cor = TRUE,scores = TRUE)
+cancer_df_pca <- princomp(cancer_df[,-1],cor = TRUE,scores = TRUE,rotation = "")
 summary(cancer_df_pca)
+
 ```
 -
 - From the screeplot it can be inferred that the after Comp.7, the increses in the variances is not signifcant enough.
@@ -444,16 +450,14 @@ ggbiplot(pcobj = cancer_df_pca,groups = cancer_df$label,ellipse = TRUE,obs.scale
 ```{r}
 train_df_pca <- data.frame(predict(cancer_df_pca,train_df_cancer[,-1]),label = train_df_cancer[,1])
 test_df_pca <- data.frame(predict(cancer_df_pca,test_df_cancer[,-1]),label = test_df_cancer[,1])
-
 ```
-
 
 # Model Building 
 
 Using logistic regression
 
 ```{r}
-
+set.seed(100)
 train_control_logit <- trainControl(method = "repeatedcv",repeats = 5,number = 5,search = "random",allowParallel = TRUE)
 model_logit_pca <- caret::train(label~ Comp.1,data = train_df_pca,method = "glm",trControl = train_control_logit)
 
@@ -462,15 +466,13 @@ pred_logit_pca <- predict(model_logit_pca,test_df_pca[z_predictors_pca])
 confusionMatrix(pred_logit_pca,test_df_pca$label,positive = "1")
 ```
 
-
 - model has predicted low specificity, yet the model converged with considering the Comp.1
 - The model Component.1 was wieghted values values of each variable that expains the contribution of each predictor to the model accuracy.
 
 ### Using random forest model with PCA comonents
 
-
 ```{r}
-
+set.seed(100)
 train_control_rf <- trainControl(method = "repeatedcv",
                                   repeats = 5,
                                   number = 5,
@@ -489,15 +491,21 @@ model_rf_pca <- randomForest(label ~ Comp.1+Comp.2+Comp.3+Comp.4+Comp.5+Comp.6+C
                          metric = "auc")
 
 pred_rf_pca <- predict(object = model_rf_pca,test_df_pca[z_predictors_pca])
-confusionMatrix(pred_rf_pca,test_df_pca$label,positive = "1")
+conf_mat_glmnet <- confusionMatrix(pred_rf_pca,test_df_pca$label,positive = "1")
+attributes(conf_mat_glmnet)
+
+conf_mat_glmnet$table
+conf_mat_glmnet$byClass[c(1:5)]
+conf_mat_glmnet$overall[c(1,2)]
+
 ```
 - with Random Forest there is no significant improvement in the Accuracy, however, there are more misclassifications in the predicted values.
 - with several components
 
-
 # Using support vector machines with pca components
-```{r}
 
+```{r}
+set.seed(100)
 train_control_svm <- trainControl(method = "repeatedcv",
                               repeats = 5,
                               number = 5,
@@ -515,8 +523,7 @@ model_svm_pca <- ksvm(label ~ Comp.1+Comp.2+Comp.3+Comp.4+Comp.5,
                   tuneGrid = tuning_grid_svm,
                   metric = "auc"
                   )
-
-model_svm
+model_svm_pca
 pred_svm_pca <- predict(model_svm_pca,test_df_pca[z_predictors_pca])
 confusionMatrix(pred_svm_pca,test_df_pca$label,positive = "1")
 ```
@@ -525,22 +532,3 @@ confusionMatrix(pred_svm_pca,test_df_pca$label,positive = "1")
 
 # Thus a PCA model is simpler compared to the models studied earlier, and robust with optimacy accuracy, although not as better as models without PCA. PCA weeds out the problem of overfitting. Further it is robust to changes to precision errors and modification in variable coefficients and predictors themselves. 
 
-
-
-<!-- ## R Markdown -->
-
-<!-- When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this: -->
-
-<!-- ```{r cars} -->
-<!-- summary(cars) -->
-<!-- ``` -->
-
-<!-- ## Including Plots -->
-
-<!-- You can also embed plots, for example: -->
-
-<!-- ```{r pressure, echo=FALSE} -->
-<!-- plot(pressure) -->
-<!-- ``` -->
-
-<!-- Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot. -->
