@@ -1,0 +1,546 @@
+---
+title: "Cancer_detection_model"
+author: "Vijay Mudivedu"
+date: '2018-09-27'
+output:
+  html_document:
+    df_print: paged
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#install.packages("knitr")
+#install.packages("tidyverse")
+#install.packages("ggbiplot")
+#install.packages("reshape2")
+#install.packages("randomForest")
+#install.packages("kernlab")
+#install.packages("glmnet")
+#install.packages("caret")
+#install.packages(gridExtra)
+#install.packages("psych")
+library(knitr)
+library(tidyverse)
+library(reshape2)
+library(ggbiplot)
+library(randomForest)
+library(kernlab)
+library(glmnet)
+library(caret)
+library(gridExtra)
+library(psych)
+```
+
+
+## Business Understanding
+
+ Features are computed from a digitized image of a fine needle aspirate (FNA) of a breast mass. They describe characteristics of the cell nuclei present in the image.
+
+A diagnostics team is developing a model to classify a tumor as either “benign” or “malignant”. 
+
+1) ID number
+2) Diagnosis (M = malignant, B = benign)
+Ten real-valued features are computed for each cell nucleus:
+a) radius (mean of distances from center to points on the perimeter)
+b) texture (standard deviation of gray-scale values)
+c) perimeterj
+d) area
+e) smoothness (local variation in radius lengths)
+f) compactness (perimeter^2 / area - 1.0)
+g) concavity (severity of concave portions of the contour)
+h) concave points (number of concave portions of the contour)
+i) symmetry
+j) fractal dimension ("coastline approximation" - 1)
+
+The mean, standard error, and "worst" or largest (mean of the three largest values) of these features were computed for each image, resulting in 30 features. For instance, field 3 is Mean Radius, field 13 is Radius SE, field 23 is Worst Radius. All feature values are recoded with four significant digits.
+
+
+### Objective of the exercise
+
+(a) Conduct an Exploratory Data Analysis and explain your findings.
+(b) Develop at least three classification models using different machine learning techniques.
+(c) Explain in detail which model is better and why?
+(d) Develop principal components for all independent variables, develop the ML models on principal components. Compare these models with previous models. What are the advantages (if any) of using PCA in classification model building? 
+
+
+#------------------
+# Data Understanding
+#------------------
+
+```{r}
+#install.packages("xlsx")
+#install.packages("rJava")
+setwd("/Users/vmudivedu/Google Drive/_OneDrive_Atimi_Software/Upgrad/case study/Cancer")
+cancer_df_raw <- read.csv(file = "~/Google Drive/_OneDrive_Atimi_Software/Upgrad/case study/Cancer/Worksheet in CaseStudy_Cancer_1.csv",header = T,check.names = T,stringsAsFactors = T)
+```
+
+### Data Preparation 
+* Check for:
+  + outliers
+  + NAs
+  + Duplicates
+
+```{r}
+sum(duplicated(cancer_df_raw$ID)) # no duplicates found
+apply(cancer_df_raw, MARGIN = 2, FUN = function(x) sum(is.na(x))) # no NAs found in the dataset
+```
+
+- *Normalizing the Parameters*
+
+```{r}
+normalize_func <- function(x)
+{
+  return((x-min(x))/(max(x)-min(x)))
+}
+
+cancer_df <- data.frame( label = cancer_df_raw$B.M ,apply(cancer_df_raw[,-c(1,2)], MARGIN = 2, FUN = function(x) normalize_func(x)))
+```
+
+- Shortening the variable names
+
+```{r}
+# Shortening the headers
+names(cancer_df)[which(names(cancer_df) %in% c("fractal.dimension","fractal.dimension.SE","fractal.dimension.W"))] <- 
+   c("fractal.dim","fractal.dim.SE","fractal.dim.W")
+```
+
+- Checking the distribution of the diagnosis Class label
+```{r}
+table(cancer_df$label)
+paste(levels(cancer_df$label),"-",round(prop.table(table(cancer_df$label))*100,2),"%")
+```
+
+- B = 357, 62.74% percent of the cases are benign
+- M = 212, 37.26% percent of the cases are Malignant
+
+
+* *Creating three groups of variable for analysis of mean, se and worst parameter of Breast Cancer dataset*
+```{r}
+var_1 <- c("label","radius","texture","perimeter","area","smoothness","compactness","concavity","concave.points","Symmetry","fractal.dim")
+var_2 <- c("label","SE.radius","texture.SE","perimeter.SE","area.SE","smoothness.SE","compactness.SE","concavity.SE","concave.points.SE","Symmetry.SE",
+           "fractal.dim.SE") 
+var_3 <- c("label","radius.W", "texture.W","perimeter.W","area.W","smoothness.W","compactness.W","concavity.W","concave.points.W","Symmetry.W","fractal.dim.W")
+```
+
+
+### *Exploratory Data Analysis*
+```{r}
+
+plot1 <- ggplot(data = melt(cancer_df[var_1],id.vars = "label"),aes(variable,value,fill = label)) + geom_boxplot() + 
+  facet_wrap(facets = variable ~.,scales = "free",nrow = 1) + 
+  theme(legend.position = c(0.9,0.05),legend.background = element_blank(),legend.title =  element_blank(),legend.direction = "horizontal",
+        axis.title.x = element_blank(),axis.text.x = element_blank(), axis.text.y = element_blank(),
+        strip.text = element_text(size = 6,hjust = 0.15))
+
+plot1 
+
+```
+- Green Malignant Tumor, M and Red Records 
+- *Observations*: Parameters of Cancer cells are observed to be larger in values compared to the Benign Cells
+  + Excepting the Fractal.dimesions means of all parameters is higher for a Malignant Breast Cancer cells
+
+```{r}
+
+plot2 <- ggplot(data = melt(cancer_df[var_2],id.vars = "label"),aes(variable,value,fill = label)) + geom_boxplot() + 
+  facet_wrap(facets = variable ~.,scales = "free",nrow = 1) + 
+  theme(legend.position = c(0.9,0.85),legend.background = element_blank(),legend.title =  element_blank(),legend.direction = "horizontal",
+        axis.title.x = element_blank(),axis.text.x = element_blank(), axis.text.y = element_blank(),
+        strip.text = element_text(size = 6,hjust = 0.15))
+
+plot2
+```
+
+- Standard Error of most parameters for the diagnosed Malignant Breast Cancer cells is higher compared to Benign cells
+- Standard error of texture of cells is similar for Malignant and Benign Breast Cancer cells
+
+```{r}
+
+plot3 <- ggplot(data = melt(cancer_df[var_3],id.vars =  "label"),aes(variable,value,fill = label)) + geom_boxplot() + 
+  facet_wrap(facets = variable ~.,scales = "free",nrow = 1) + 
+  theme(legend.position = c(0.9,0.85),legend.background = element_blank(),legend.title =  element_blank(),legend.direction = "horizontal",
+        axis.title.x = element_blank(),axis.text.x = element_blank(), axis.text.y = element_blank(),
+        strip.text = element_text(size = 6,hjust = 0.15))
+
+  plot3
+```
+
+- It can be concluded from the boxplots that 
+  +  Malignant tumors have larger radius, texture, perimeter, area, compactnes, concavity, concavity points, fact.
+
+*Checking the correlation between the different sets of variables*
+
+```{r}
+pairs.panels(cancer_df[var_1[-1]],smooth = TRUE,ellipses = TRUE,pch = 21,bg = rainbow(n = length(var_1)-1), main = "Correlation plots of Breast Cancer Variables")
+```
+
+```{r}
+pairs.panels(cancer_df[var_3[-1]],smooth = TRUE,ellipses = TRUE,pch = 21,bg = rainbow(n = length(var_1)-1))
+```
+* Fractal dimesions of and Area, Smoothness, compactness
+
+```{r}
+p1 <- ggplot(cancer_df,aes(x = fractal.dim,y = area,col = label)) + geom_point(alpha = 0.6) + labs(title = "fractal.dim vs Area") + 
+  theme(plot.title = element_text(hjust = 0.5),legend.position =  c(0.8,0.8),legend.background = element_blank(),legend.title =  element_blank())
+
+p2 <- ggplot(cancer_df,aes(x = fractal.dim,y = compactness,col = label)) + geom_point(alpha = 0.6) + labs(title = "fractal.dim vs compactness") + 
+  theme(plot.title = element_text(hjust = 0.5),legend.position =  c(0.8,0.8),legend.background = element_blank(),legend.title =  element_blank())
+
+p3 <- ggplot(cancer_df,aes(x = fractal.dim,y = Symmetry,col = label)) + geom_point(alpha = 0.6) + labs(title = "fractal.dim vs Symmetry") + 
+  theme(plot.title = element_text(hjust = 0.5),legend.position =  c(0.8,0.8),legend.background = element_blank(),legend.title =  element_blank())
+
+p4 <- ggplot(cancer_df,aes( x= fractal.dim,y = concavity,col = label)) + geom_point(alpha = 0.6) + labs(title = "fractal.dim vs concavity") + 
+  theme(plot.title = element_text(hjust = 0.5),legend.position =  c(0.8,0.8),legend.background = element_blank(),legend.title =  element_blank())
+
+gridExtra::grid.arrange(p1,p2,p3,p4)
+
+```
+
+
+- As it can be seen several of the parameters are exhibit strong correlation with rest of the other parameters
+- Fractal dimensions of Malignant Cancer Cells have 
+  + higher values of area, symmetricity, concavity, and compactness against fractal.dimesions are clear indicators of Malignant cells
+  + inverse relationship with area 
+  + direct relationship with compactness, concavity,Compactness
+
+- Assuming Benign = 0 no cancer case, Malignant = 1 as the case with positive class of breast cancer
+B = 0, M = 1
+```{r}
+diagnosis <- factor(ifelse(test = cancer_df$label == "M",yes = 1,no = 0))
+cancer_df$label <- diagnosis
+```
+
+*Sampling the dataset and splitting the dataset into train and test*
+
+```{r}
+set.seed(100)
+indices_can <- sample(1:nrow(cancer_df),size = 0.7*nrow(cancer_df))
+train_df_cancer <- cancer_df[indices_can,]
+test_df_cancer <- cancer_df[-indices_can,]
+```
+
+*checking the spread of class label*
+```{r}
+table(train_df_cancer$label)
+prop.table(table(train_df_cancer$label))*100 # this is an imbalanced dataset where benign cases are higher than the Malignant tumor cases
+```
+
+#(b) Develop at least three classification models using different machine learning techniques.
+
+#-------------------
+## Model Building
+#-------------------
+
+### Using logistic regression
+
+```{r}
+train_control_logit <- trainControl(method = "repeatedcv",repeats = 5,number = 5,search = "random",allowParallel = TRUE)
+model_logit <- caret::train(label~.,data = train_df_cancer[var_2],method = "glm",trControl = train_control_logit)
+
+```
+
+-Variables in the dataset have a perfect correlation between them, thus using regularization is needed in order to penalize the coefficients that exhibit high degree of collinearlity and leading to overfitting
+
+```{r}
+set.seed(100)
+z_predictors <- setdiff(names(train_df_cancer),"label")
+#model_lasso <- glmnet::glmnet(x = z_predictors,y = label,,family = "binomial",alpha = 1,lambda = seq(0,0.5,length.out = 50))
+model_glmnet <- caret::train(x = train_df_cancer[,z_predictors],y = train_df_cancer[,c("label")],method = "glmnet",
+                             trControl = train_control_logit)
+
+model_glmnet
+
+```
+
+- With k-fold cross validation, 319 samples were used
+
+- most important predictors
+
+```{r}
+plot(model_glmnet$finalModel,label = T,xvar = "lambda")
+plot(model_glmnet$finalModel,label = T,xvar = "dev")
+plot(varImp(model_glmnet))
+```
+- 80% of the variablility in the dataset is explained by the 11 variables in the dataset and the remaining variables have grown steeply leading to high collinearity and overfitting
+
+```{r}
+plot(varImp(model_glmnet))
+```
+
+- The 11 variables are show below by the glmfit
+```{r}
+varImp(model_glmnet)
+```
+
+- The best tuning parameters of ElasticNet Regression are:
+```{r}
+model_glmnet$bestTune
+```
+
+# predicting the glmnet parameters
+```{r}
+
+predict_glmfit <- predict(object = model_glmnet,newdata = test_df_cancer[z_predictors])#,type = "response")
+confusionMatrix(factor(predict_glmfit),test_df_cancer$label,positive = "1")
+```
+
+*Comments*: Miss-rate is: 3. specifies that 3 records though were
+
+### Using Support Vector Machines
+
+```{r}
+train_control_svm <- trainControl(method = "repeatedcv",
+                              repeats = 5,
+                              number = 5,
+                              search = "grid"
+                              )
+
+tuning_grid_svm <- expand.grid(.sigma = seq(0,0.05,0.01),.C = seq(0.1,3,0.5)) 
+# Sigma = non-linearity control parameter
+# C = cost function paratmeter to number of misclassifcations control in SVM
+
+model_svm <- ksvm(label ~.,
+                  kernel = "polydot", # Radial Basis Function Kernel, Polydot kernels are superior
+                  data = train_df_cancer,
+                  trControl = trn_cntrol_svm,
+                  tuneGrid = tuning_grid_svm,
+                  metric = "auc"
+                  )
+
+model_svm
+```
+
+```{r}
+# predicting the parameters
+predicted_svm <- predict(model_svm,test_df_cancer[z_predictors],type = "response")
+# confusion matrix to check the accuracy of the model
+confusionMatrix(data = predicted_svm,reference = test_df_cancer$label,positive = "1")
+```
+
+### Using Random Forest
+
+```{r}
+# Train control
+train_control_rf <- trainControl(method = "repeatedcv",
+                                  repeats = 5,
+                                  number = 5,
+                                  search = "grid",
+                                  sampling = "smote",
+                                 allowParallel = TRUE)
+
+# Tuning grid parameters of Random Forest
+tuning_grid_rf <- expand.grid(.mtry = round(sqrt(ncol(train_df_cancer))),ntree = seq(100,500,100)) 
+
+model_rf <- randomForest(label ~.,
+                         data = train_df_cancer,
+                         #method = "rf",
+                         trControl = train_control_rf,
+                         tuneGrid = tuning_grid_rf,
+                         metric = "auc")
+
+model_rf$importance
+```
+
+- Evaluating the svm model on the test_data
+```{r}
+
+predict_rf <- stats::predict(object = model_rf,test_df_cancer[z_predictors])
+
+# Confusion Matrix
+confusionMatrix(predict_rf,test_df_cancer$label,positive = "1")
+```
+
+# Using XGBoost
+
+```{r}
+# preparing the trainingControl 
+trn_cntrol_xgb <- caret::trainControl(method = "repeatedcv",
+                                      number = 5,
+                                      repeats = 3,
+                                      #summaryFunction = twoClassSummary,	# Use AUC to pick the best model
+                                      allowParallel = TRUE)
+
+# and tuning parapmeters for the xgb tree
+xgb.grid <- expand.grid(eta = seq(0.1,0.31, 0.1),
+                        nrounds = c(50, 75, 100),
+                        max_depth = 3:5,  # 4
+                        min_child_weight = c(2.0, 2.25), #2 
+                        colsample_bytree = c(0.3, 0.4, 0.5), # 3
+                        gamma = 0, #1
+                        subsample = 1)  # 1
+
+# Modelling the dataset using the algorithm
+model_xgb <- caret::train(label ~ ., 
+                              data = train_df_cancer,
+                              method = "xgbTree",
+                              trControl = trn_cntrol_xgb,
+                              tuneGrid = xgb.grid)
+
+#
+print(model_xgb$finalModel)
+model_xgb$bestTune
+
+
+```
+
+### extremeGradient Boosing prediction
+
+```{r}
+# predicting the val
+predict_xgb <- predict(object = model_xgb,test_df_cancer[z_predictors])
+
+# confusion matrix
+confusionMatrix(data = predict_xgb,reference = test_df_cancer$label,positive = "1")
+```
+
+#------------------------------
+#(c) Explain in detail which model is better and why?
+#------------------------------
+
+- Comparing different sets of models glmnet,svm,randomforest, and XgBoostTree; the glmnet model is the best model from the available set of data
+Advantages:
+1. glmnet data, has best specificity = 1, and sensitivity = 0.98 and balanced accuracy = 0.977, 
+2. glmnet explains the variablility between the coefficients and clearly orders the variables of importance
+3. glmnet regularizes the coeficients controlling the overfitting problem associated with the inclusion of large number of predictors
+4. with large datasets the model converges faster and more higher accuracy
+5. Although the model performs well on the dataset, it suffers with hyperparameter tuning of alpha and lambda part of regularization.
+
+- Next best model in the list the Support Vector machines. 
+Undoubtedly SVM outperforms the glmnet in terms of numbers, however, it suffers from some of the major drawbacks. Some of them are:
+1. Since the dataset is smaller svm has converged faster, with large datasets support vector machines takes larger durations to converge
+2. with kernel implementation the abstract behavior of the svm is difficult to analyse the output. 
+
+#-------------------------
+# (d) Develop principal components for all independent variables, develop the ML models on principal components. Compare these models with previous models. What are the advantages (if any) of using PCA in classification model building? 
+#-------------------------
+
+### principal component analysis
+
+```{r}
+cancer_df_pca <- princomp(cancer_df[,-1],cor = TRUE,scores = TRUE)
+summary(cancer_df_pca)
+```
+-
+- From the screeplot it can be inferred that the after Comp.7, the increses in the variances is not signifcant enough.
+- Thus Top 8 components explain 93% of the variance among the total 30 components.
+
+```{r}
+screeplot(cancer_df_pca,type = "l")
+```
+
+```{r}
+ggbiplot(pcobj = cancer_df_pca,groups = cancer_df$label,ellipse = TRUE,obs.scale = 2,var.scale = 2,circle = T,ellipse.prob = 0.68) +
+  scale_color_discrete(name = "") + theme(legend.position = c(0.8,0.1),legend.background = element_blank())
+```
+
+- 68% of the probability is explained by the red ellipse and this explains the portion of the principal component with Benign cases
+- 32% of the probability is explained by the green ellipse records
+- It can be inferred that PC1 and fractal dimensions, symmetry, smoothness, compactness have a negatiave correalation while positive correlation with the rest of the other quantitative parameters, area, perimeter, radius, etc
+
+# predicting the training and test datasets using PCA
+```{r}
+train_df_pca <- data.frame(predict(cancer_df_pca,train_df_cancer[,-1]),label = train_df_cancer[,1])
+test_df_pca <- data.frame(predict(cancer_df_pca,test_df_cancer[,-1]),label = test_df_cancer[,1])
+
+```
+
+
+# Model Building 
+
+Using logistic regression
+
+```{r}
+
+train_control_logit <- trainControl(method = "repeatedcv",repeats = 5,number = 5,search = "random",allowParallel = TRUE)
+model_logit_pca <- caret::train(label~ Comp.1,data = train_df_pca,method = "glm",trControl = train_control_logit)
+
+z_predictors_pca <- setdiff(names(train_df_pca),"label")
+pred_logit_pca <- predict(model_logit_pca,test_df_pca[z_predictors_pca])
+confusionMatrix(pred_logit_pca,test_df_pca$label,positive = "1")
+```
+
+
+- model has predicted low specificity, yet the model converged with considering the Comp.1
+- The model Component.1 was wieghted values values of each variable that expains the contribution of each predictor to the model accuracy.
+
+### Using random forest model with PCA comonents
+
+
+```{r}
+
+train_control_rf <- trainControl(method = "repeatedcv",
+                                  repeats = 5,
+                                  number = 5,
+                                  search = "grid",
+                                  sampling = "smote",
+                                 allowParallel = TRUE)
+
+# Tuning grid parameters of Random Forest
+tuning_grid_rf <- expand.grid(.mtry = round(sqrt(ncol(train_df_cancer))),ntree = seq(100,500,100)) 
+
+model_rf_pca <- randomForest(label ~ Comp.1+Comp.2+Comp.3+Comp.4+Comp.5+Comp.6+Comp.7,
+                         data = train_df_pca,
+                         #method = "rf",
+                         trControl = train_control_rf,
+                         tuneGrid = tuning_grid_rf,
+                         metric = "auc")
+
+pred_rf_pca <- predict(object = model_rf_pca,test_df_pca[z_predictors_pca])
+confusionMatrix(pred_rf_pca,test_df_pca$label,positive = "1")
+```
+- with Random Forest there is no significant improvement in the Accuracy, however, there are more misclassifications in the predicted values.
+- with several components
+
+
+# Using support vector machines with pca components
+```{r}
+
+train_control_svm <- trainControl(method = "repeatedcv",
+                              repeats = 5,
+                              number = 5,
+                              search = "grid"
+                              )
+
+tuning_grid_svm <- expand.grid(.sigma = seq(0,0.05,0.01),.C = seq(0.1,3,0.5)) 
+# Sigma = non-linearity control parameter
+# C = cost function paratmeter to number of misclassifcations control in SVM
+
+model_svm_pca <- ksvm(label ~ Comp.1+Comp.2+Comp.3+Comp.4+Comp.5,
+                  kernel = "polydot", # Radial Basis Function Kernel, Polydot kernels are superior
+                  data = train_df_pca,
+                  trControl = trn_cntrol_svm,
+                  tuneGrid = tuning_grid_svm,
+                  metric = "auc"
+                  )
+
+model_svm
+pred_svm_pca <- predict(model_svm_pca,test_df_pca[z_predictors_pca])
+confusionMatrix(pred_svm_pca,test_df_pca$label,positive = "1")
+```
+
+# There are more misclassications with the less number of components, with an optimum till Comp.6. With more data the problem of overfitting can be further reduced and model can be further tuned to reach an optimum accuracy. 
+
+# Thus a PCA model is simpler compared to the models studied earlier, and robust with optimacy accuracy, although not as better as models without PCA. PCA weeds out the problem of overfitting. Further it is robust to changes to precision errors and modification in variable coefficients and predictors themselves. 
+
+
+
+<!-- ## R Markdown -->
+
+<!-- When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this: -->
+
+<!-- ```{r cars} -->
+<!-- summary(cars) -->
+<!-- ``` -->
+
+<!-- ## Including Plots -->
+
+<!-- You can also embed plots, for example: -->
+
+<!-- ```{r pressure, echo=FALSE} -->
+<!-- plot(pressure) -->
+<!-- ``` -->
+
+<!-- Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot. -->
